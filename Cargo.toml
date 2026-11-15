@@ -11,7 +11,11 @@ version = "0.1.0"
 edition = "2024"
 license = "Elastic-2.0"
 repository = "https://github.com/Liqtzone/driftsync"
+homepage = "https://github.com/Liqtzone/driftsync"
+description = "Multi-repository 3-way structural configuration drift & sync engine"
 rust-version = "1.85"
+keywords = ["git", "devops", "drift", "3-way-merge", "configuration"]
+categories = ["command-line-utilities", "development-tools"]
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -3,6 +3,12 @@ name = "driftsync-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Core domain logic, structural 3-way merge, and secret scanning engine for driftsync"
+readme = "../../README.md"
+keywords.workspace = true
+categories.workspace = true
 
 [lints]
 workspace = true
