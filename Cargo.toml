@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/driftsync-core",
+    "crates/driftsync-git",
+    "crates/driftsync-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Elastic-2.0"
+repository = "https://github.com/Liqtzone/driftsync"
+rust-version = "1.85"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+
+[workspace.dependencies]
+anyhow = "1"
+blake3 = "1"
+clap = { version = "4", features = ["derive"] }
+diffy = "0.4"
+owo-colors = "4"
+proptest = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+similar = "2"
+tempfile = "3"
+thiserror = "2"
+toml = "0.8"
+toml_edit = "0.22"

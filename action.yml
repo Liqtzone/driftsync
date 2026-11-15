@@ -1,0 +1,62 @@
+name: "driftsync — Multi-Repo Configuration Drift & 3-Way Sync"
+description: "Audit multi-repo configuration drift or open 3-way merged sync PRs while preserving local customizations."
+author: "driftsync contributors"
+branding:
+  icon: "git-merge"
+  color: "blue"
+
+inputs:
+  mode:
+    description: "Execution mode: 'check' (CI drift audit), 'status' (report only), or 'pr' (automated branch + PR)"
+    required: false
+    default: "check"
+  root:
+    description: "Workspace root directory containing `drift.toml`"
+    required: false
+    default: "."
+  branch:
+    description: "Git branch name to create when `mode: pr` is used"
+    required: false
+    default: "chore/config-sync"
+  title:
+    description: "Commit and Pull Request title when `mode: pr` is used"
+    required: false
+    default: "chore: sync shared configuration via driftsync"
+  github-token:
+    description: "GitHub token (`GH_TOKEN`) for cloning remote repositories and opening PRs"
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Build or install driftsync
+      shell: bash
+      run: |
+        if ! command -v driftsync >/dev/null 2>&1; then
+          cargo install --path "${{ github.action_path }}/crates/driftsync-cli" --locked
+        fi
+
+    - name: Run driftsync (${{ inputs.mode }})
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        case "${{ inputs.mode }}" in
+          check)
+            driftsync --root "${{ inputs.root }}" check --markdown
+            ;;
+          status)
+            driftsync --root "${{ inputs.root }}" status --markdown --step-summary
+            ;;
+          pr)
+            driftsync --root "${{ inputs.root }}" pr \
+              --branch "${{ inputs.branch }}" \
+              --title "${{ inputs.title }}" \
+              --write --push --open-gh
+            ;;
+          *)
+            echo "Unknown mode: ${{ inputs.mode }} (expected 'check', 'status', or 'pr')" >&2
+            exit 1
+            ;;
+        esac
