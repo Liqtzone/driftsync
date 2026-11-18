@@ -20,8 +20,8 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
-driftsync-core = { path = "../driftsync-core", version = "0.1.0" }
-driftsync-git = { path = "../driftsync-git", version = "0.1.0" }
+driftsync-core = { path = "../driftsync-core", version = "0.1.1" }
+driftsync-git = { path = "../driftsync-git", version = "0.1.1" }
 owo-colors.workspace = true
 serde.workspace = true
 serde_json.workspace = true
