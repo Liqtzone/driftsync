@@ -15,6 +15,8 @@ Organizations maintaining multiple repositories (microservices, SDKs, polyrepos)
 | `None` | `None` | Target file does not exist | `MissingInTarget` | `Create` |
 | `None` | `Some` | `ours == theirs` | `UntrackedIdentical` | `RecordLock` |
 | `None` | `Some` | `ours != theirs` | `UntrackedDifferent` | `NeedsAdopt` (never overwrite blindly) |
+| `Some` | `None` | `theirs == base` (local deletion preserved) | `LocallyDeleted` | `KeepLocal` (target deletion respected) |
+| `Some` | `None` | `theirs != base` (delete/modify conflict) | `BothChangedConflict` | `Conflict` (skipped during apply, resolve required) |
 | `Some` | `Some` | `ours == theirs` | `InSync` | `NoOp` / `RecordLock` |
 | `Some` | `Some` | `ours == base && theirs != base` | `UpstreamChanged` | `UpdateFastForward` |
 | `Some` | `Some` | `ours != base && theirs == base` | `LocallyModified` | `KeepLocal` (local edit preserved) |

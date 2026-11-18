@@ -24,3 +24,8 @@
 - **Context:** Target repositories may be untrusted; a malicious target repo could place a symlink pointing outside the workspace or a `.git/hooks/pre-commit` script to achieve code execution during sync.
 - **Decision:** Verify every path segment with `fs::symlink_metadata`, forbid `.git` as a managed path component, and execute Git commands with `-c core.fsmonitor=false`, `-c protocol.ext.allow=never`, `GIT_TERMINAL_PROMPT=0`, and `commit --no-verify`.
 - **Consequences:** Eliminates symlink arbitrary file overwrite and Git hook RCE vectors.
+
+## ADR-006: Tracked Deletion & Delete/Modify Conflict Handling
+- **Context:** When a previously synced file is recorded in `.driftsync.lock` (`base`) but missing from the target repository (`ours = None`), treating it unconditionally as `MissingInTarget` and planning `Create` resurrects intentionally deleted files and silences delete/modify conflicts.
+- **Decision:** Distinguish `(None, None)` (untracked missing file -> `MissingInTarget`, `Create`) from `(Some(base), None)` (tracked deletion). If upstream is unchanged (`theirs == base`), preserve the deletion (`LocallyDeleted`, plan `KeepLocal`). If upstream modified the file (`theirs != base`), report a 3-way `BothChangedConflict` (delete/modify conflict) requiring explicit resolution (`driftsync resolve`). Under `strategy = "overwrite"`, allow upstream to recreate the file.
+- **Consequences:** Eliminates file resurrection bugs, respects local repo deletions as valid overrides under 3-way merge, and flags upstream changes to locally deleted files as conflicts.

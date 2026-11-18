@@ -253,6 +253,7 @@ fn format_status_badge(status: DriftStatus) -> String {
         DriftStatus::UntrackedDifferent => format!("{}", "NEEDS-ADOPT".yellow().bold()),
         DriftStatus::UpstreamChanged => format!("{}", "UPSTREAM-CHANGED".magenta().bold()),
         DriftStatus::LocallyModified => format!("{}", "LOCALLY-MODIFIED (KEPT)".green()),
+        DriftStatus::LocallyDeleted => format!("{}", "LOCALLY-DELETED (KEPT)".green()),
         DriftStatus::BothChangedClean => format!("{}", "3-WAY-MERGE (CLEAN)".bright_cyan().bold()),
         DriftStatus::BothChangedConflict => format!("{}", "CONFLICT".red().bold()),
     }

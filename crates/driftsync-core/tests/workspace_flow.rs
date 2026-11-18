@@ -1,6 +1,7 @@
 use driftsync_core::{
-    DriftStatus, LockFile, LockedFileEntry, ManagedFile, Manifest, ResolutionChoice, SyncStrategy,
-    TargetRepo, apply_workspace, evaluate_workspace, hash_content, resolve_target_file,
+    DriftStatus, LockFile, LockedFileEntry, ManagedFile, Manifest, PlanAction, ResolutionChoice,
+    SyncStrategy, TargetRepo, apply_workspace, evaluate_workspace, hash_content,
+    resolve_target_file,
 };
 use std::fs;
 
@@ -328,4 +329,128 @@ fn end_to_end_conflict_resolution_ours_and_theirs() {
         fs::read_to_string(svc_dir.join("cfg.toml")).expect("read"),
         upstream_cfg
     );
+}
+
+#[test]
+fn end_to_end_tracked_local_deletion_and_delete_modify_conflict() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+
+    let initial_conf = "enabled = true\n";
+    let updated_upstream_conf = "enabled = true\nport = 8080\n";
+
+    fs::create_dir_all(root.join("templates")).expect("templates dir");
+    fs::write(root.join("templates/service.conf"), initial_conf).expect("write upstream");
+
+    let svc_dir = root.join("repos/svc-del");
+    fs::create_dir_all(&svc_dir).expect("svc dir");
+    fs::write(svc_dir.join("service.conf"), initial_conf).expect("write svc conf");
+
+    let mut lock = LockFile::default();
+    lock.files.insert(
+        "service.conf".to_string(),
+        LockedFileEntry {
+            base_hash: hash_content(initial_conf),
+            base_content: initial_conf.to_string(),
+        },
+    );
+    lock.save(&svc_dir).expect("save lock");
+
+    let target = TargetRepo {
+        name: "svc-del".to_string(),
+        path: "repos/svc-del".to_string(),
+        repo: None,
+        vars: Default::default(),
+    };
+    let file = ManagedFile {
+        source: "templates/service.conf".to_string(),
+        target: "service.conf".to_string(),
+        strategy: SyncStrategy::ThreeWay,
+    };
+    let manifest = Manifest {
+        version: 1,
+        vars: Default::default(),
+        targets: vec![target.clone()],
+        files: vec![file.clone()],
+    };
+
+    // 1. Target intentionally deletes the tracked file locally
+    fs::remove_file(svc_dir.join("service.conf")).expect("delete local file");
+
+    let reports = evaluate_workspace(root, &manifest).expect("eval");
+    assert_eq!(
+        reports[0].evaluations[0].status,
+        DriftStatus::LocallyDeleted
+    );
+    assert_eq!(reports[0].evaluations[0].plan, PlanAction::KeepLocal);
+    assert!(reports[0].evaluations[0].unified_diff.is_empty());
+
+    // 2. apply --write must NOT resurrect the deleted file when upstream is unchanged
+    let (_, summary) =
+        apply_workspace(root, &manifest, Some("rev1".to_string()), true).expect("apply");
+    assert_eq!(summary.files_written, 0);
+    assert!(
+        !svc_dir.join("service.conf").exists(),
+        "deleted file must not be recreated"
+    );
+
+    // 3. Upstream modifies the template while target deleted it -> delete/modify conflict!
+    fs::write(root.join("templates/service.conf"), updated_upstream_conf).expect("update upstream");
+
+    let conflict_reports = evaluate_workspace(root, &manifest).expect("eval conflict");
+    assert_eq!(
+        conflict_reports[0].evaluations[0].status,
+        DriftStatus::BothChangedConflict
+    );
+    assert!(matches!(
+        conflict_reports[0].evaluations[0].plan,
+        PlanAction::Conflict { .. }
+    ));
+
+    // apply --write skips conflicts
+    let (_, conflict_summary) =
+        apply_workspace(root, &manifest, Some("rev2".to_string()), true).expect("apply conflict");
+    assert_eq!(conflict_summary.conflicts_skipped, 1);
+    assert_eq!(conflict_summary.files_written, 0);
+    assert!(!svc_dir.join("service.conf").exists());
+
+    // 4. Resolve with Ours (keep deletion)
+    resolve_target_file(
+        root,
+        &target,
+        &file,
+        &manifest.vars,
+        Some("rev2"),
+        ResolutionChoice::Ours,
+        true,
+    )
+    .expect("resolve ours");
+
+    assert!(!svc_dir.join("service.conf").exists());
+    let after_ours = evaluate_workspace(root, &manifest).expect("after ours");
+    assert_eq!(
+        after_ours[0].evaluations[0].status,
+        DriftStatus::LocallyDeleted
+    );
+    assert_eq!(after_ours[0].evaluations[0].plan, PlanAction::KeepLocal);
+
+    // 5. Resolve with Theirs (recreate from upstream)
+    resolve_target_file(
+        root,
+        &target,
+        &file,
+        &manifest.vars,
+        Some("rev2"),
+        ResolutionChoice::Theirs,
+        true,
+    )
+    .expect("resolve theirs");
+
+    assert!(svc_dir.join("service.conf").exists());
+    assert_eq!(
+        fs::read_to_string(svc_dir.join("service.conf")).expect("read"),
+        updated_upstream_conf
+    );
+    let after_theirs = evaluate_workspace(root, &manifest).expect("after theirs");
+    assert_eq!(after_theirs[0].evaluations[0].status, DriftStatus::InSync);
 }

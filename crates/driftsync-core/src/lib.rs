@@ -271,6 +271,7 @@ pub enum DriftStatus {
     UntrackedDifferent,
     UpstreamChanged,
     LocallyModified,
+    LocallyDeleted,
     BothChangedClean,
     BothChangedConflict,
 }
@@ -332,13 +333,59 @@ pub fn evaluate_file(
     let theirs_norm = normalize_newlines(theirs);
 
     let (status, plan, preview_after) = match (base_norm.as_deref(), ours_norm.as_deref()) {
-        (_, None) => (
+        (None, None) => (
             DriftStatus::MissingInTarget,
             PlanAction::Create {
                 new_content: theirs_norm.clone(),
             },
             theirs_norm.clone(),
         ),
+        (Some(base_str), None) => {
+            if base_str == theirs_norm {
+                match strategy {
+                    SyncStrategy::Overwrite => (
+                        DriftStatus::LocallyDeleted,
+                        PlanAction::OverwriteWithUpstream {
+                            new_content: theirs_norm.clone(),
+                        },
+                        theirs_norm.clone(),
+                    ),
+                    SyncStrategy::ThreeWay | SyncStrategy::KeepLocal => (
+                        DriftStatus::LocallyDeleted,
+                        PlanAction::KeepLocal,
+                        String::new(),
+                    ),
+                }
+            } else {
+                match strategy {
+                    SyncStrategy::Overwrite => (
+                        DriftStatus::UpstreamChanged,
+                        PlanAction::OverwriteWithUpstream {
+                            new_content: theirs_norm.clone(),
+                        },
+                        theirs_norm.clone(),
+                    ),
+                    SyncStrategy::KeepLocal => (
+                        DriftStatus::LocallyDeleted,
+                        PlanAction::KeepLocal,
+                        String::new(),
+                    ),
+                    SyncStrategy::ThreeWay => {
+                        let conflict_msg = format!(
+                            "<<<<<<< ours (deleted locally)\n=======\n{}\n>>>>>>> theirs (upstream updated)\n",
+                            theirs_norm
+                        );
+                        (
+                            DriftStatus::BothChangedConflict,
+                            PlanAction::Conflict {
+                                conflict_preview: conflict_msg.clone(),
+                            },
+                            conflict_msg,
+                        )
+                    }
+                }
+            }
+        }
         (None, Some(ours_str)) => {
             if ours_str == theirs_norm {
                 (
@@ -806,10 +853,14 @@ pub fn adopt_workspace(
 pub fn has_actionable_drift(reports: &[RepoReport]) -> bool {
     reports.iter().any(|repo| {
         repo.evaluations.iter().any(|eval| {
-            !matches!(
+            if matches!(
                 eval.status,
-                DriftStatus::InSync | DriftStatus::LocallyModified
-            )
+                DriftStatus::InSync | DriftStatus::LocallyModified | DriftStatus::LocallyDeleted
+            ) {
+                !matches!(eval.plan, PlanAction::NoOp | PlanAction::KeepLocal)
+            } else {
+                true
+            }
         })
     })
 }
@@ -822,6 +873,7 @@ fn status_markdown_badge(status: DriftStatus) -> &'static str {
         DriftStatus::UntrackedDifferent => "⚠️ `NEEDS-ADOPT`",
         DriftStatus::UpstreamChanged => "⚡ `UPSTREAM-CHANGED`",
         DriftStatus::LocallyModified => "🛡️ `LOCALLY-MODIFIED`",
+        DriftStatus::LocallyDeleted => "🛡️ `LOCALLY-DELETED`",
         DriftStatus::BothChangedClean => "🔀 `3-WAY-MERGE`",
         DriftStatus::BothChangedConflict => "❌ `CONFLICT`",
     }
@@ -1462,6 +1514,105 @@ jobs:
         let pr_body = generate_pr_body(&report, Some("abc1234"));
         assert!(pr_body.contains("abc1234"));
         assert!(pr_body.contains(".editorconfig"));
+    }
+
+    #[test]
+    fn tracked_file_deleted_locally_preserves_deletion_when_upstream_unchanged() {
+        let base = "version = 1\n";
+        let theirs = "version = 1\n";
+
+        let eval_threeway = evaluate_file(
+            "templates/cfg.toml",
+            "cfg.toml",
+            SyncStrategy::ThreeWay,
+            Some(base),
+            None,
+            theirs,
+        );
+        assert_eq!(eval_threeway.status, DriftStatus::LocallyDeleted);
+        assert_eq!(eval_threeway.plan, PlanAction::KeepLocal);
+        assert!(eval_threeway.unified_diff.is_empty());
+
+        let eval_keep = evaluate_file(
+            "templates/cfg.toml",
+            "cfg.toml",
+            SyncStrategy::KeepLocal,
+            Some(base),
+            None,
+            theirs,
+        );
+        assert_eq!(eval_keep.status, DriftStatus::LocallyDeleted);
+        assert_eq!(eval_keep.plan, PlanAction::KeepLocal);
+
+        let eval_overwrite = evaluate_file(
+            "templates/cfg.toml",
+            "cfg.toml",
+            SyncStrategy::Overwrite,
+            Some(base),
+            None,
+            theirs,
+        );
+        assert_eq!(eval_overwrite.status, DriftStatus::LocallyDeleted);
+        assert_eq!(
+            eval_overwrite.plan,
+            PlanAction::OverwriteWithUpstream {
+                new_content: theirs.to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn tracked_file_deleted_locally_flags_delete_modify_conflict_when_upstream_modified() {
+        let base = "version = 1\n";
+        let theirs = "version = 2\n";
+
+        let eval = evaluate_file(
+            "templates/cfg.toml",
+            "cfg.toml",
+            SyncStrategy::ThreeWay,
+            Some(base),
+            None,
+            theirs,
+        );
+        assert_eq!(eval.status, DriftStatus::BothChangedConflict);
+        match &eval.plan {
+            PlanAction::Conflict { conflict_preview } => {
+                assert!(conflict_preview.contains("deleted locally"));
+                assert!(conflict_preview.contains("version = 2"));
+            }
+            other => panic!("expected conflict, got: {other:?}"),
+        }
+
+        let eval_keep = evaluate_file(
+            "templates/cfg.toml",
+            "cfg.toml",
+            SyncStrategy::KeepLocal,
+            Some(base),
+            None,
+            theirs,
+        );
+        assert_eq!(eval_keep.status, DriftStatus::LocallyDeleted);
+        assert_eq!(eval_keep.plan, PlanAction::KeepLocal);
+    }
+
+    #[test]
+    fn untracked_missing_file_triggers_create() {
+        let theirs = "new_file = true\n";
+        let eval = evaluate_file(
+            "templates/new.toml",
+            "new.toml",
+            SyncStrategy::ThreeWay,
+            None,
+            None,
+            theirs,
+        );
+        assert_eq!(eval.status, DriftStatus::MissingInTarget);
+        assert_eq!(
+            eval.plan,
+            PlanAction::Create {
+                new_content: theirs.to_string(),
+            }
+        );
     }
 
     proptest! {
