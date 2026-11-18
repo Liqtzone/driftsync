@@ -1,7 +1,7 @@
 class Driftsync < Formula
   desc "Multi-repo configuration drift classifier and 3-way structural sync CLI"
   homepage "https://github.com/Liqtzone/driftsync"
-  version "0.1.0"
+  version "0.1.1"
   license "Elastic-2.0"
 
   on_macos do
