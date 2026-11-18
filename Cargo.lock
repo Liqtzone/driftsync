@@ -249,7 +249,7 @@ dependencies = [
 
 [[package]]
 name = "driftsync"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -263,7 +263,7 @@ dependencies = [
 
 [[package]]
 name = "driftsync-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "diffy",
@@ -279,7 +279,7 @@ dependencies = [
 
 [[package]]
 name = "driftsync-git"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "tempfile",
